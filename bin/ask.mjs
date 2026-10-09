@@ -171,12 +171,24 @@ function toQuestion(q) {
   };
 }
 
+// Letters and digits only: Slack turns _text_ into italics and drops the underscores from links.
+function randomToken(length = 24) {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let token = "";
+  while (token.length < length) {
+    for (const byte of randomBytes(length)) {
+      if (byte < 248 && token.length < length) token += alphabet[byte % 62]; // 248 = 4 * 62, no modulo bias
+    }
+  }
+  return token;
+}
+
 const readYaml = (file) => YAML.parse(readFileSync(file, "utf8"));
 const tokenOf = (arg) => arg.split("/").pop();
 
 function push(file) {
   const doc = readYaml(file);
-  const token = randomBytes(18).toString("base64url");
+  const token = randomToken();
   convex("admin:create", {
     token,
     title: doc.title,
