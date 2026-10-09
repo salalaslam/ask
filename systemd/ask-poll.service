@@ -1,0 +1,9 @@
+[Unit]
+Description=Close brief items answered through ask links, and notify
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/ask/bin/ask.mjs poll
+TimeoutStartSec=5min

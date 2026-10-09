@@ -1,0 +1,131 @@
+:root {
+  --bg: #f6f6f4;
+  --card: #ffffff;
+  --text: #1a1a1a;
+  --muted: #666;
+  --line: #e2e2de;
+  --accent: #1f5eff;
+  --accent-bg: #eef3ff;
+  --ok: #1a7f37;
+  --error: #c4291c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111;
+    --card: #1b1b1b;
+    --text: #ececec;
+    --muted: #9a9a9a;
+    --line: #2e2e2e;
+    --accent: #6e9bff;
+    --accent-bg: #1a2440;
+    --ok: #4cc26b;
+    --error: #ff6b5e;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 17px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+main {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+h1 {
+  font-size: 1.4rem;
+  margin: 0 0 4px;
+}
+
+.lead {
+  color: var(--muted);
+  margin: 0 0 24px;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px 16px;
+  margin-bottom: 16px;
+}
+
+.card h2 {
+  font-size: 1.1rem;
+  margin: 0 0 6px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.context {
+  color: var(--muted);
+  margin: 0 0 14px;
+  white-space: pre-line;
+}
+
+.saved {
+  color: var(--ok);
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-top: 8px;
+  cursor: pointer;
+  min-height: 48px;
+}
+
+.option:disabled {
+  cursor: default;
+}
+
+.option[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.option strong {
+  display: block;
+  font-weight: 600;
+}
+
+.option span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.92rem;
+  margin-top: 2px;
+}
+
+.error {
+  color: var(--error);
+  margin: 10px 0 0;
+}
+
+.notice {
+  text-align: center;
+  padding: 48px 16px;
+  color: var(--muted);
+}
