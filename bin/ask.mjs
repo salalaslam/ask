@@ -86,13 +86,16 @@ Rules:
 - context: one or two short sentences: what the situation is and why it needs their decision.
 - 2 to 4 options. id: short kebab-case slug. label: under 8 words. detail: one sentence with the
   consequence or trade-off of picking it (under 25 words).
+- suits: which side each option works best for. "us" = the dev team (least work, least risk, already
+  built), "you" = the products team (best for the people using it and the business). An option can suit both or neither;
+  mark at least one option per question for each side.
 - Keep the options the developer listed in the brief item, in the same order; add one only if it is
   an obvious missing choice.
 - Keep domain terms the team uses as they write them, untranslated.
 
 Reply with only JSON, no code fences:
 {"questions": [{"brief": <brief id>, "title": "...", "context": "...",
-  "options": [{"id": "...", "label": "...", "detail": "..."}]}]}
+  "options": [{"id": "...", "label": "...", "detail": "...", "suits": ["us", "you"]}]}]}
 
 Brief items:
 `;
@@ -152,7 +155,12 @@ function push(file) {
       ...(q.brief != null && { briefId: Number(q.brief) }),
       title: q.title,
       context: q.context,
-      options: q.options.map((o) => ({ id: String(o.id), label: o.label, ...(o.detail && { detail: o.detail }) })),
+      options: q.options.map((o) => ({
+        id: String(o.id),
+        label: o.label,
+        ...(o.detail && { detail: o.detail }),
+        ...(o.suits?.length && { suits: o.suits }),
+      })),
     })),
   });
   const url = `${SITE}/${token}`;

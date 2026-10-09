@@ -1,6 +1,14 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+// suits marks who an option works best for: "us" (dev) and/or "you" (products)
+export const option = v.object({
+  id: v.string(),
+  label: v.string(),
+  detail: v.optional(v.string()),
+  suits: v.optional(v.array(v.union(v.literal("us"), v.literal("you")))),
+});
+
 export default defineSchema({
   sets: defineTable({
     token: v.string(),
@@ -26,9 +34,7 @@ export default defineSchema({
     briefId: v.optional(v.number()),
     title: v.string(),
     context: v.string(),
-    options: v.array(
-      v.object({ id: v.string(), label: v.string(), detail: v.optional(v.string()) }),
-    ),
+    options: v.array(option),
     answer: v.optional(v.string()),
     answeredAt: v.optional(v.number()),
   }).index("by_set", ["setId", "order"]),

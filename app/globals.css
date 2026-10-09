@@ -129,3 +129,40 @@ h1 {
   padding: 48px 16px;
   color: var(--muted);
 }
+
+.option .tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.tag {
+  font-style: normal;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.tag.us {
+  color: #8a4b00;
+  background: #fff1db;
+}
+
+.tag.you {
+  color: #0b6b3a;
+  background: #ddf5e7;
+}
+
+@media (prefers-color-scheme: dark) {
+  .tag.us {
+    color: #ffc27a;
+    background: #3a2a12;
+  }
+
+  .tag.you {
+    color: #7ee0a6;
+    background: #133322;
+  }
+}

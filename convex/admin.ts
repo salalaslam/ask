@@ -3,6 +3,7 @@
 import { ConvexError, v } from "convex/values";
 import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
+import { option } from "./schema";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -16,9 +17,7 @@ export const create = internalMutation({
         briefId: v.optional(v.number()),
         title: v.string(),
         context: v.string(),
-        options: v.array(
-          v.object({ id: v.string(), label: v.string(), detail: v.optional(v.string()) }),
-        ),
+        options: v.array(option),
       }),
     ),
   },
