@@ -38,6 +38,7 @@ export default defineSchema({
     context: v.string(),
     options: v.array(option),
     answer: v.optional(v.string()),
+    answerText: v.optional(v.string()),
     answeredAt: v.optional(v.number()),
   }).index("by_set", ["setId", "order"]),
 });

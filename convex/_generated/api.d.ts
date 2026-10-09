@@ -9,6 +9,7 @@
  */
 
 import type * as admin from "../admin.js";
+import type * as answers from "../answers.js";
 import type * as sets from "../sets.js";
 
 import type {
@@ -19,6 +20,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   admin: typeof admin;
+  answers: typeof answers;
   sets: typeof sets;
 }>;
 

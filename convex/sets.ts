@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query, type QueryCtx } from "./_generated/server";
+import { MAX_TEXT, OTHER } from "./answers";
 
 async function setByToken(ctx: QueryCtx, token: string) {
   return await ctx.db
@@ -28,24 +29,40 @@ export const get = query({
         context: q.context,
         options: q.options,
         answer: q.answer ?? null,
+        answerText: q.answerText ?? null,
       })),
     };
   },
 });
 
 export const answer = mutation({
-  args: { token: v.string(), questionId: v.id("questions"), optionId: v.string() },
-  handler: async (ctx, { token, questionId, optionId }) => {
+  args: {
+    token: v.string(),
+    questionId: v.id("questions"),
+    optionId: v.string(),
+    text: v.optional(v.string()),
+  },
+  handler: async (ctx, { token, questionId, optionId, text }) => {
     const set = await setByToken(ctx, token);
     if (!set || set.status !== "open" || set.expiresAt < Date.now()) {
       throw new ConvexError("This link is closed.");
     }
     const question = await ctx.db.get(questionId);
     if (!question || question.setId !== set._id) throw new ConvexError("Unknown question.");
-    if (!question.options.some((o) => o.id === optionId)) throw new ConvexError("Unknown option.");
+    const answerText = text?.trim() ?? "";
+    if (optionId === OTHER) {
+      if (!answerText) throw new ConvexError("Write your answer first.");
+      if (answerText.length > MAX_TEXT) throw new ConvexError(`Keep it under ${MAX_TEXT} characters.`);
+    } else if (!question.options.some((o) => o.id === optionId)) {
+      throw new ConvexError("Unknown option.");
+    }
 
     const now = Date.now();
-    await ctx.db.patch(questionId, { answer: optionId, answeredAt: now });
+    await ctx.db.patch(questionId, {
+      answer: optionId,
+      answerText: optionId === OTHER ? answerText : undefined,
+      answeredAt: now,
+    });
 
     const questions = await ctx.db
       .query("questions")

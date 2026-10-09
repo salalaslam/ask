@@ -174,3 +174,48 @@ h1 {
 .option .if b {
   font-weight: 600;
 }
+
+.note {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: -12px 0 24px;
+}
+
+.option .written {
+  color: var(--text);
+  white-space: pre-line;
+}
+
+.write {
+  margin-top: 8px;
+}
+
+.write textarea {
+  display: block;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  background: var(--card);
+  border: 1.5px solid var(--accent);
+  border-radius: 10px;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+.save {
+  margin-top: 8px;
+  width: 100%;
+  min-height: 46px;
+  font: inherit;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.save:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

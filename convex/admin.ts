@@ -3,6 +3,7 @@
 import { ConvexError, v } from "convex/values";
 import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
+import { OTHER, OTHER_LABEL } from "./answers";
 import { option } from "./schema";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -12,6 +13,7 @@ function checkOptions(q: { title: string; options: { id: string }[] }) {
   if (ids.length < 2 || new Set(ids).size !== ids.length) {
     throw new ConvexError(`"${q.title}" needs at least two options with distinct ids.`);
   }
+  if (ids.includes(OTHER)) throw new ConvexError(`"${OTHER}" is reserved for the free-text answer.`);
 }
 
 export const create = internalMutation({
@@ -87,7 +89,7 @@ export const addOption = internalMutation({
     const { questions } = await openSetQuestions(ctx, token);
     const target = questions[question - 1];
     if (!target) throw new ConvexError(`No question ${question}.`);
-    if (target.options.some((o) => o.id === option.id)) {
+    if (option.id === OTHER || target.options.some((o) => o.id === option.id)) {
       throw new ConvexError(`Question ${question} already has an option "${option.id}".`);
     }
     await ctx.db.patch(target._id, { options: [...target.options, option] });
@@ -147,7 +149,10 @@ async function withQuestions(ctx: QueryCtx, set: Doc<"sets">) {
       briefId: q.briefId ?? null,
       title: q.title,
       answer: q.answer ?? null,
-      answerLabel: q.options.find((o) => o.id === q.answer)?.label ?? null,
+      answerLabel:
+        q.answer === OTHER
+          ? `${OTHER_LABEL}: ${q.answerText}`
+          : (q.options.find((o) => o.id === q.answer)?.label ?? null),
     })),
   };
 }
