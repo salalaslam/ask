@@ -14,6 +14,10 @@ const USAGE = `usage:
   ask push FILE                       create a link from a draft file
   ask list                            recent sets and their answers
   ask revoke TOKEN                    close a link by hand
+  ask retitle TOKEN TEXT              change the title of an open link
+  ask add-option TOKEN N FILE         add an option (YAML) to question N of an open link
+  ask add-question TOKEN FILE [--after N]
+                                      add a question (YAML, may have brief:) to an open link
   ask poll                            close answered brief items, notify (run by ask-poll.timer)
 
 Drafts are written to ~/ask/drafts/. ASK_URL overrides the site URL.`;
@@ -147,25 +151,36 @@ async function cmdNew(argv) {
   if (yes) push(file);
 }
 
+function toOption(o) {
+  return {
+    id: String(o.id),
+    label: o.label,
+    ...(o.detail && { detail: o.detail }),
+    ...(o.chooseIf && { chooseIf: o.chooseIf }),
+    ...(o.suits?.length && { suits: o.suits }),
+  };
+}
+
+function toQuestion(q) {
+  return {
+    ...(q.brief != null && { briefId: Number(q.brief) }),
+    title: q.title,
+    context: q.context,
+    options: q.options.map(toOption),
+  };
+}
+
+const readYaml = (file) => YAML.parse(readFileSync(file, "utf8"));
+const tokenOf = (arg) => arg.split("/").pop();
+
 function push(file) {
-  const doc = YAML.parse(readFileSync(file, "utf8"));
+  const doc = readYaml(file);
   const token = randomBytes(18).toString("base64url");
   convex("admin:create", {
     token,
     title: doc.title,
     ttlDays: doc.days ?? DEFAULT_DAYS,
-    questions: doc.questions.map((q) => ({
-      ...(q.brief != null && { briefId: Number(q.brief) }),
-      title: q.title,
-      context: q.context,
-      options: q.options.map((o) => ({
-        id: String(o.id),
-        label: o.label,
-        ...(o.detail && { detail: o.detail }),
-        ...(o.chooseIf && { chooseIf: o.chooseIf }),
-        ...(o.suits?.length && { suits: o.suits }),
-      })),
-    })),
+    questions: doc.questions.map(toQuestion),
   });
   const url = `${SITE}/${token}`;
   console.log(url);
@@ -223,7 +238,18 @@ try {
   if (cmd === "new") await cmdNew(argv);
   else if (cmd === "push" && argv[0]) push(argv[0]);
   else if (cmd === "list") cmdList();
-  else if (cmd === "revoke" && argv[0]) convex("admin:revoke", { token: argv[0].split("/").pop() });
+  else if (cmd === "revoke" && argv[0]) convex("admin:revoke", { token: tokenOf(argv[0]) });
+  else if (cmd === "retitle" && argv.length === 2) convex("admin:retitle", { token: tokenOf(argv[0]), title: argv[1] });
+  else if (cmd === "add-option" && argv.length === 3) {
+    convex("admin:addOption", { token: tokenOf(argv[0]), question: Number(argv[1]), option: toOption(readYaml(argv[2])) });
+  } else if (cmd === "add-question" && argv.length >= 2) {
+    const after = argv.indexOf("--after");
+    convex("admin:addQuestion", {
+      token: tokenOf(argv[0]),
+      ...(after >= 0 && { after: Number(argv[after + 1]) }),
+      question: toQuestion(readYaml(argv[1])),
+    });
+  }
   else if (cmd === "poll") await cmdPoll();
   else die(USAGE);
 } catch (err) {

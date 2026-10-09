@@ -7,6 +7,13 @@ import { option } from "./schema";
 
 const DAY = 24 * 60 * 60 * 1000;
 
+function checkOptions(q: { title: string; options: { id: string }[] }) {
+  const ids = q.options.map((o) => o.id);
+  if (ids.length < 2 || new Set(ids).size !== ids.length) {
+    throw new ConvexError(`"${q.title}" needs at least two options with distinct ids.`);
+  }
+}
+
 export const create = internalMutation({
   args: {
     token: v.string(),
@@ -24,12 +31,7 @@ export const create = internalMutation({
   handler: async (ctx, { token, title, ttlDays, questions }) => {
     if (token.length < 20) throw new ConvexError("Token too short.");
     if (questions.length === 0) throw new ConvexError("No questions.");
-    for (const q of questions) {
-      const ids = q.options.map((o) => o.id);
-      if (ids.length < 2 || new Set(ids).size !== ids.length) {
-        throw new ConvexError(`"${q.title}" needs at least two options with distinct ids.`);
-      }
-    }
+    questions.forEach(checkOptions);
     const setId = await ctx.db.insert("sets", {
       token,
       title,
@@ -53,6 +55,64 @@ export const revoke = internalMutation({
     if (!set) throw new ConvexError("No set with that token.");
     if (set.status !== "open") throw new ConvexError(`Set is already ${set.status}.`);
     await ctx.db.patch(set._id, { status: "revoked", reportedAt: Date.now() });
+  },
+});
+
+async function openSetQuestions(ctx: QueryCtx, token: string) {
+  const set = await ctx.db
+    .query("sets")
+    .withIndex("by_token", (q) => q.eq("token", token))
+    .unique();
+  if (!set) throw new ConvexError("No set with that token.");
+  if (set.status !== "open") throw new ConvexError(`Set is already ${set.status}.`);
+  const questions = await ctx.db
+    .query("questions")
+    .withIndex("by_set", (q) => q.eq("setId", set._id))
+    .collect();
+  return { set, questions };
+}
+
+export const retitle = internalMutation({
+  args: { token: v.string(), title: v.string() },
+  handler: async (ctx, { token, title }) => {
+    const { set } = await openSetQuestions(ctx, token);
+    await ctx.db.patch(set._id, { title });
+  },
+});
+
+// Only open sets can change. Questions are addressed by their 1-based number on the page.
+export const addOption = internalMutation({
+  args: { token: v.string(), question: v.number(), option },
+  handler: async (ctx, { token, question, option }) => {
+    const { questions } = await openSetQuestions(ctx, token);
+    const target = questions[question - 1];
+    if (!target) throw new ConvexError(`No question ${question}.`);
+    if (target.options.some((o) => o.id === option.id)) {
+      throw new ConvexError(`Question ${question} already has an option "${option.id}".`);
+    }
+    await ctx.db.patch(target._id, { options: [...target.options, option] });
+  },
+});
+
+export const addQuestion = internalMutation({
+  args: {
+    token: v.string(),
+    after: v.optional(v.number()),
+    question: v.object({
+      briefId: v.optional(v.number()),
+      title: v.string(),
+      context: v.string(),
+      options: v.array(option),
+    }),
+  },
+  handler: async (ctx, { token, after, question }) => {
+    checkOptions(question);
+    const { set, questions } = await openSetQuestions(ctx, token);
+    const at = after ?? questions.length;
+    if (at < 0 || at > questions.length) throw new ConvexError(`No question ${at}.`);
+    const before = at === 0 ? -1 : questions[at - 1].order;
+    const next = questions[at]?.order ?? before + 2;
+    await ctx.db.insert("questions", { setId: set._id, order: (before + next) / 2, ...question });
   },
 });
 
