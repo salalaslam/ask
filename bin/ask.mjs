@@ -16,6 +16,7 @@ const USAGE = `usage:
   ask revoke TOKEN                    close a link by hand
   ask retitle TOKEN TEXT              change the title of an open link
   ask add-option TOKEN N FILE         add an option (YAML) to question N of an open link
+  ask remove-question TOKEN N         remove question N from an open link
   ask add-question TOKEN FILE [--after N]
                                       add a question (YAML, may have brief:) to an open link
   ask poll                            close answered brief items, notify (run by ask-poll.timer)
@@ -240,7 +241,9 @@ try {
   else if (cmd === "list") cmdList();
   else if (cmd === "revoke" && argv[0]) convex("admin:revoke", { token: tokenOf(argv[0]) });
   else if (cmd === "retitle" && argv.length === 2) convex("admin:retitle", { token: tokenOf(argv[0]), title: argv[1] });
-  else if (cmd === "add-option" && argv.length === 3) {
+  else if (cmd === "remove-question" && argv.length === 2) {
+    convex("admin:removeQuestion", { token: tokenOf(argv[0]), question: Number(argv[1]) });
+  } else if (cmd === "add-option" && argv.length === 3) {
     convex("admin:addOption", { token: tokenOf(argv[0]), question: Number(argv[1]), option: toOption(readYaml(argv[2])) });
   } else if (cmd === "add-question" && argv.length >= 2) {
     const after = argv.indexOf("--after");

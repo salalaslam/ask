@@ -116,6 +116,21 @@ export const addQuestion = internalMutation({
   },
 });
 
+// If every remaining question is answered, the set completes as if the last answer just came in.
+export const removeQuestion = internalMutation({
+  args: { token: v.string(), question: v.number() },
+  handler: async (ctx, { token, question }) => {
+    const { set, questions } = await openSetQuestions(ctx, token);
+    const target = questions[question - 1];
+    if (!target) throw new ConvexError(`No question ${question}.`);
+    if (questions.length === 1) throw new ConvexError("Can't remove the only question; revoke the link instead.");
+    await ctx.db.delete(target._id);
+    if (questions.every((q) => q._id === target._id || q.answer !== undefined)) {
+      await ctx.db.patch(set._id, { status: "complete", completedAt: Date.now() });
+    }
+  },
+});
+
 async function withQuestions(ctx: QueryCtx, set: Doc<"sets">) {
   const questions = await ctx.db
     .query("questions")
