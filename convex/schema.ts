@@ -1,11 +1,13 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
-// suits marks who an option works best for: "us" (dev) and/or "you" (products)
+// chooseIf is the condition shown as "Choose this if …"; suits marks who an
+// option works best for: "us" (dev) and/or "you" (products)
 export const option = v.object({
   id: v.string(),
   label: v.string(),
   detail: v.optional(v.string()),
+  chooseIf: v.optional(v.string()),
   suits: v.optional(v.array(v.union(v.literal("us"), v.literal("you")))),
 });
 

@@ -86,6 +86,9 @@ Rules:
 - context: one or two short sentences: what the situation is and why it needs their decision.
 - 2 to 4 options. id: short kebab-case slug. label: under 8 words. detail: one sentence with the
   consequence or trade-off of picking it (under 25 words).
+- chooseIf: the situation in which products should pick this option, as a clause that follows
+  "Choose this if" (lowercase start, no full stop, under 15 words). Make the conditions of a
+  question's options clearly different, so the reader can tell which one fits them.
 - suits: which side each option works best for. "us" = the dev team (least work, least risk, already
   built), "you" = the products team (best for the people using it and the business). An option can suit both or neither;
   mark at least one option per question for each side.
@@ -95,7 +98,7 @@ Rules:
 
 Reply with only JSON, no code fences:
 {"questions": [{"brief": <brief id>, "title": "...", "context": "...",
-  "options": [{"id": "...", "label": "...", "detail": "...", "suits": ["us", "you"]}]}]}
+  "options": [{"id": "...", "label": "...", "detail": "...", "chooseIf": "...", "suits": ["us", "you"]}]}]}
 
 Brief items:
 `;
@@ -159,6 +162,7 @@ function push(file) {
         id: String(o.id),
         label: o.label,
         ...(o.detail && { detail: o.detail }),
+        ...(o.chooseIf && { chooseIf: o.chooseIf }),
         ...(o.suits?.length && { suits: o.suits }),
       })),
     })),

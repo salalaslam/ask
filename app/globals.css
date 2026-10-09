@@ -166,3 +166,11 @@ h1 {
     background: #133322;
   }
 }
+
+.option .if {
+  color: var(--text);
+}
+
+.option .if b {
+  font-weight: 600;
+}

@@ -64,6 +64,11 @@ export function Answers({ params }: { params: Promise<{ token: string }> }) {
               >
                 <strong>{o.label}</strong>
                 {o.detail && <span>{o.detail}</span>}
+                {o.chooseIf && (
+                  <span className="if">
+                    <b>Choose this if</b> {o.chooseIf}
+                  </span>
+                )}
                 {o.suits && o.suits.length > 0 && (
                   <span className="tags">
                     {o.suits.includes("us") && <em className="tag us">Suits us (dev)</em>}
