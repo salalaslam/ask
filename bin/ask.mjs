@@ -21,7 +21,7 @@ const USAGE = `usage:
                                       add a question (YAML, may have brief:) to an open link
   ask poll                            close answered brief items, notify (run by ask-poll.timer)
 
-Drafts are written to ~/ask/drafts/. ASK_URL overrides the site URL.`;
+Drafts are written to ~/tools/ask/drafts/. ASK_URL overrides the site URL.`;
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SITE = process.env.ASK_URL;
