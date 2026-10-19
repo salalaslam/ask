@@ -2,11 +2,12 @@
 // ask: send products a link with brief questions, and close the brief items once they answer.
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
+import { parseEnv } from "node:util";
 import YAML from "yaml";
 
 const USAGE = `usage:
@@ -21,11 +22,14 @@ const USAGE = `usage:
                                       add a question (YAML, may have brief:) to an open link
   ask poll                            close answered brief items, notify (run by ask-poll.timer)
 
-Drafts are written to ~/tools/ask/drafts/. ASK_URL overrides the site URL.`;
+Drafts are written to drafts/ in this repo. Set ASK_URL (the deployed site) in .env.local or the environment.`;
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const SITE = process.env.ASK_URL;
-const BRIEF = "brief";
+// Local settings (ASK_URL, ASK_BRIEF, ASK_DRAFT_RULES) can live in the git-ignored .env.local.
+const LOCAL = existsSync(join(ROOT, ".env.local")) ? parseEnv(readFileSync(join(ROOT, ".env.local"), "utf8")) : {};
+const setting = (key) => process.env[key] ?? LOCAL[key];
+const SITE = setting("ASK_URL");
+const BRIEF = setting("ASK_BRIEF") ?? "brief";
 const BRIEF_DB = join(homedir(), ".local/state/brief/brief.sqlite");
 const PROJECTS = join(homedir(), ".config/teams-reader/projects.toml");
 const DEFAULT_DAYS = 14;
@@ -100,7 +104,7 @@ Rules:
 - Keep the options the developer listed in the brief item, in the same order; add one only if it is
   an obvious missing choice.
 - Keep domain terms the team uses as they write them, untranslated.
-
+${setting("ASK_DRAFT_RULES") ? `- ${setting("ASK_DRAFT_RULES")}\n` : ""}
 Reply with only JSON, no code fences:
 {"questions": [{"brief": <brief id>, "title": "...", "context": "...",
   "options": [{"id": "...", "label": "...", "detail": "...", "chooseIf": "...", "suits": ["us", "you"]}]}]}
@@ -247,6 +251,7 @@ function die(message) {
 }
 
 const [cmd, ...argv] = process.argv.slice(2);
+if (!SITE && cmd !== "poll") die("Set ASK_URL to the deployed site, in .env.local or the environment.");
 try {
   if (cmd === "new") await cmdNew(argv);
   else if (cmd === "push" && argv[0]) push(argv[0]);

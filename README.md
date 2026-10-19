@@ -15,3 +15,4 @@ Each link uses one random token. Answers save one at a time and can be changed u
 
 - Convex: `pnpm exec convex deploy`. The CLI calls internal functions with `convex run --prod`, so admin access is your Convex login.
 - Vercel: `vercel deploy --prod`, with `NEXT_PUBLIC_CONVEX_URL` set on the project.
+- Put `ASK_URL=https://your-site.example` in `.env.local` (ignored by git) so the CLI prints the right links.
