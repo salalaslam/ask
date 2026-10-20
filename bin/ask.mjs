@@ -2,7 +2,7 @@
 // ask: send products a link with brief questions, and close the brief items once they answer.
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -12,9 +12,12 @@ import YAML from "yaml";
 
 const USAGE = `usage:
   ask new BRIEF_ID... [--title TEXT]  draft questions from brief items, review, push
-  ask push FILE                       create a link from a draft file
+  ask push FILE [--thread KEY]         create a link, optionally wake a Toucan thread
   ask list                            recent sets and their answers
-  ask revoke TOKEN                    close a link by hand
+  ask revoke TOKEN|URL [--discard]     close a link; --discard skips reporting
+  ask show TOKEN|URL                   show a link's answers
+  ask wait TOKEN|URL [--timeout MINUTES]
+                                      wait for an answer count/status change (default 110m; timeout exits 3)
   ask retitle TOKEN TEXT              change the title of an open link
   ask add-option TOKEN N FILE         add an option (YAML) to question N of an open link
   ask remove-question TOKEN N         remove question N from an open link
@@ -22,7 +25,9 @@ const USAGE = `usage:
                                       add a question (YAML, may have brief:) to an open link
   ask poll                            close answered brief items, notify (run by ask-poll.timer)
 
-Drafts are written to drafts/ in this repo. Set ASK_URL (the deployed site) in .env.local or the environment.`;
+Drafts are written to drafts/ in this repo; thread: KEY can set their Toucan owner.
+Settings in .env.local or the environment: ASK_URL (site),
+ASK_WHATSAPP (optional owner number), TOUCAN_CONFIG (optional config path).`;
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 // Local settings (ASK_URL, ASK_BRIEF, ASK_DRAFT_RULES) can live in the git-ignored .env.local.
@@ -33,12 +38,17 @@ const BRIEF = setting("ASK_BRIEF") ?? "brief";
 const BRIEF_DB = join(homedir(), ".local/state/brief/brief.sqlite");
 const PROJECTS = join(homedir(), ".config/teams-reader/projects.toml");
 const DEFAULT_DAYS = 14;
+const TOUCAN = setting("TOUCAN_CONFIG") ?? join(homedir(), ".config/toucan/toucan.toml");
+const DELIVERY_FILE = join(homedir(), ".local/state/ask/delivered.json");
+const QUIET = 10 * 60 * 1000;
+const GIVE_UP = 6 * 60 * 60 * 1000;
+const IO_TIMEOUT = 60 * 1000;
 
 function convex(fn, args = {}) {
   const out = execFileSync(
     join(ROOT, "node_modules/.bin/convex"),
     ["run", "--prod", fn, JSON.stringify(args)],
-    { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: IO_TIMEOUT },
   );
   return out.trim() ? JSON.parse(out) : null;
 }
@@ -188,19 +198,34 @@ function randomToken(length = 24) {
 }
 
 const readYaml = (file) => YAML.parse(readFileSync(file, "utf8"));
-const tokenOf = (arg) => arg.split("/").pop();
+const tokenOf = (arg) => /^https?:\/\//.test(arg) ? new URL(arg).pathname.split("/").filter(Boolean).pop() : arg;
+const expandHome = (path) => path === "~" ? homedir() : path.startsWith("~/") ? join(homedir(), path.slice(2)) : path;
 
-function push(file) {
+function toucanThread(key) {
+  const threads = python(
+    `import json, sys, tomllib
+print(json.dumps(tomllib.load(open(sys.argv[1], 'rb')).get('threads', {})))`,
+    expandHome(TOUCAN),
+  );
+  if (typeof key !== "string" || !Object.hasOwn(threads, key)) throw new Error(`Unknown Toucan thread: ${key}`);
+  return threads[key];
+}
+
+function push(file, threadFlag) {
   const doc = readYaml(file);
+  const thread = threadFlag ?? doc.thread;
+  if (thread != null) toucanThread(thread);
   const token = randomToken();
   convex("admin:create", {
     token,
     title: doc.title,
     ttlDays: doc.days ?? DEFAULT_DAYS,
+    ...(thread != null && { thread }),
     questions: doc.questions.map(toQuestion),
   });
   const url = `${SITE}/${token}`;
   console.log(url);
+  console.log(`Token: ${token}`);
   console.log(
     `\nSlack: ${doc.questions.length} quick decisions, one tap each on your phone: ${url} (link works for ${doc.days ?? DEFAULT_DAYS} days)`,
   );
@@ -216,33 +241,251 @@ function cmdList() {
   }
 }
 
+function answerLabel(q) {
+  if (q.answer === "other" && q.answerText != null) return `Something else: ${q.answerText}`;
+  return q.answerLabel ?? q.options?.find((o) => o.id === q.answer)?.label ?? q.answer;
+}
+
+const answered = (set) => set.questions.filter((q) => q.answer != null);
+const answeredLines = (set) => answered(set).map((q) => `${q.title} → ${answerLabel(q)}`);
+const summary = (set) => [`${set.title}: ${set.status}, ${answered(set).length}/${set.questions.length} answered`, ...answeredLines(set)].join("\n");
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function getSet(arg) {
+  const set = convex("admin:get", { token: tokenOf(arg) });
+  if (!set) throw new Error("No set with that token.");
+  return set;
+}
+
+function cmdShow(arg) {
+  console.log(summary(getSet(arg)));
+}
+
+// For agents to run in the background: exits as soon as answers or the status change.
+async function cmdWait(arg, minutes = 110) {
+  if (!Number.isFinite(minutes) || minutes <= 0) throw new Error("--timeout must be a positive number of minutes.");
+  const deadline = Date.now() + minutes * 60 * 1000;
+  const seen = (set) => `${set.status} ${set.questions.map((q) => `${q.id}=${q.answer}:${q.answeredAt}`).join(",")}`;
+  let initial;
+  while (Date.now() < deadline) {
+    let set;
+    try {
+      set = getSet(arg);
+    } catch (err) {
+      if (/No set with that token/.test(err.message)) throw err;
+      console.error(`wait: lookup failed; retrying: ${err.stderr?.toString().trim() || err.message}`);
+    }
+    if (set && initial == null) {
+      initial = seen(set);
+      if (set.status !== "open") {
+        console.log(summary(set));
+        return;
+      }
+      console.error(`wait: ${answered(set).length}/${set.questions.length} answered; waiting for a change`);
+    } else if (set && seen(set) !== initial) {
+      console.log(summary(set));
+      return;
+    }
+    await sleep(Math.min(30_000, Math.max(0, deadline - Date.now())));
+  }
+  console.error("wait: timed out with no new answers");
+  process.exitCode = 3;
+}
+
+function readDeliveryState() {
+  if (!existsSync(DELIVERY_FILE)) return {};
+  const state = JSON.parse(readFileSync(DELIVERY_FILE, "utf8"));
+  if (!state || typeof state !== "object" || Array.isArray(state)) throw new Error("Invalid ask delivery state.");
+  return state;
+}
+
+function saveDeliveryState(state) {
+  mkdirSync(dirname(DELIVERY_FILE), { recursive: true, mode: 0o700 });
+  const tmp = `${DELIVERY_FILE}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+  writeFileSync(tmp, JSON.stringify(state), { mode: 0o600 });
+  renameSync(tmp, DELIVERY_FILE);
+}
+
+function noticeFor(set, key, kind) {
+  const count = answered(set).length;
+  const total = set.questions.length;
+  const title = kind === "final"
+    ? `${set.status === "complete" ? "Products answered" : `Link ${set.status}`}: ${set.title}`
+    : kind === "started" ? `Products started answering: ${set.title}` : `Products answered ${count} of ${total} so far on ${set.title}`;
+  const lines = kind === "final"
+    ? set.questions.map((q) => `${q.title} → ${q.answer != null ? answerLabel(q) : `no answer, link ${set.status}`}`)
+    : answeredLines(set);
+  return {
+    key,
+    kind,
+    title,
+    message: [`${set.status}, ${count}/${total} answered`, ...lines].join("\n"),
+    // Wakes contain counts and our title only, never respondent answer text.
+    wake: `ask: ${count} of ${total} answered on ${JSON.stringify(set.title)} (${set.status}; ${kind}). Run: ask show ${set.token}`,
+  };
+}
+
+async function post(url, options) {
+  return await fetch(url, { ...options, method: "POST", signal: AbortSignal.timeout(IO_TIMEOUT), redirect: "error" });
+}
+
+async function sendNtfy(url, set, notice) {
+  const res = await post(url, {
+    headers: {
+      Title: `=?UTF-8?B?${Buffer.from(notice.title).toString("base64")}?=`,
+      Tags: "ballot_box_with_check",
+      Priority: notice.kind === "final" ? "high" : "default",
+      Click: new URL(set.token, `${SITE.replace(/\/$/, "")}/`).href,
+    },
+    body: notice.message,
+  });
+  if (!res.ok) throw new Error(`ntfy HTTP ${res.status}`);
+  await res.body?.cancel();
+}
+
+function sendWhatsapp(number, set, notice) {
+  const run = spawnSync("wacli", ["send", "text", "--to", number, "--message", `${notice.title}\n${notice.message}\n${SITE}/${set.token}`], {
+    encoding: "utf8", timeout: IO_TIMEOUT,
+  });
+  if (run.status !== 0) throw new Error(run.error?.message || run.stderr?.trim() || "wacli failed");
+}
+
+async function wakeThread(key, notice) {
+  const thread = toucanThread(key);
+  if (typeof thread.hook_file !== "string") throw new Error("Thread has no hook_file.");
+  const file = expandHome(thread.hook_file);
+  const stat = statSync(file);
+  if (!stat.isFile() || (stat.mode & 0o7777) !== 0o600) throw new Error("hook_file must exist and have mode 600.");
+  const url = new URL(readFileSync(file, "utf8").trim());
+  if (!["http:", "https:"].includes(url.protocol)) throw new Error("hook_file must contain an HTTP(S) URL.");
+  const res = await post(url, {
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ thread: key, summary: notice.wake, count: 0 }),
+  });
+  if (![200, 202].includes(res.status)) throw new Error(`thread wake HTTP ${res.status}`);
+  await res.body?.cancel();
+}
+
+async function deliverChannel(state, key, send) {
+  const previous = state[key];
+  if (previous?.deliveredAt != null) return true;
+  if (previous?.firstFailedAt != null && Date.now() - previous.firstFailedAt > GIVE_UP) {
+    console.error(`GIVING UP ${key}: failed for over 6 hours after ${previous.attempts} attempts: ${previous.lastError}`);
+    return true;
+  }
+  try {
+    if (await send() === false) {
+      console.log(`skipped ${key}: not configured`);
+      return true;
+    }
+  } catch (err) {
+    state[key] = { firstFailedAt: previous?.firstFailedAt ?? Date.now(), attempts: (previous?.attempts ?? 0) + 1, lastError: err.message };
+    saveDeliveryState(state);
+    console.error(`FAILED ${key} (attempt ${state[key].attempts}): ${err.message}`);
+    return false;
+  }
+  state[key] = { deliveredAt: Date.now() };
+  saveDeliveryState(state);
+  console.log(`delivered ${key}`);
+  return true;
+}
+
+async function notify(state, set, notice) {
+  const channels = [
+    // Read configuration inside the delivery attempt so config errors are retried too.
+    ["ntfy", async () => {
+      const url = ntfyUrl();
+      if (!url) return false;
+      await sendNtfy(url, set, notice);
+    }],
+    ...(notice.kind === "final" && setting("ASK_WHATSAPP") ? [["whatsapp", () => sendWhatsapp(setting("ASK_WHATSAPP"), set, notice)]] : []),
+    ...(set.thread ? [["thread", () => wakeThread(set.thread, notice)]] : []),
+  ];
+  let done = true;
+  for (const [channel, send] of channels) {
+    if (!await deliverChannel(state, `${set.id}:${notice.key}:${channel}`, send)) done = false;
+  }
+  return done;
+}
+
+function closeBriefItems(set) {
+  let closed = true;
+  for (const q of answered(set).filter((q) => q.briefId != null && q.closedAt == null)) {
+    try {
+      const run = spawnSync(BRIEF, ["done", String(q.briefId), "--note", `Products chose: ${answerLabel(q)} (via ask)`], {
+        encoding: "utf8", timeout: IO_TIMEOUT,
+      });
+      if (run.status !== 0 && !/no open item/i.test(run.stderr ?? "")) {
+        throw new Error(run.error?.message || run.stderr?.trim() || "brief done failed");
+      }
+      convex("admin:markClosed", { questionId: q.id });
+      console.log(`closed brief ${q.briefId} for ${set.id}`);
+    } catch (err) {
+      closed = false;
+      console.error(`FAILED brief ${q.briefId} for ${set.id}: ${err.stderr?.toString().trim() || err.message}`);
+    }
+  }
+  return closed;
+}
+
+async function pollFinal(state, set) {
+  if (set.status === "revoked" && !answered(set).length) {
+    convex("admin:markReported", { id: set.id });
+    console.log(`reported ${set.id}: revoked with no answers; no notification`);
+    return true;
+  }
+  const closed = closeBriefItems(set);
+  const delivered = await notify(state, set, noticeFor(set, "final", "final"));
+  if (!closed || !delivered) return false;
+  convex("admin:markReported", { id: set.id });
+  console.log(`reported ${set.id}: ${set.status}`);
+  return true;
+}
+
+async function pollProgress(state, set) {
+  const newest = Math.max(...answered(set).map((q) => q.answeredAt ?? 0));
+  const after = set.progressAt ?? 0;
+  if (newest <= after) return true;
+  const key = `${set.id}:burst`;
+  // The early notice never advances progressAt. Freeze both notices for retries;
+  // only a delivered paused notice advances it, so later answers form a new burst.
+  if (!state[key] || state[key].after < after) {
+    state[key] = { after, started: noticeFor(set, `started:${after}`, "started") };
+    saveDeliveryState(state);
+  }
+  const burst = state[key];
+  const started = await notify(state, set, burst.started);
+  if (!burst.paused && Date.now() - newest >= QUIET) {
+    burst.paused = { at: newest, notice: noticeFor(set, `paused:${newest}`, "paused") };
+    saveDeliveryState(state);
+  }
+  if (!burst.paused) return started;
+  const paused = await notify(state, set, burst.paused.notice);
+  if (!started || !paused) return false;
+  convex("admin:markProgress", { id: set.id, at: burst.paused.at });
+  console.log(`marked progress ${set.id} through ${burst.paused.at}`);
+  delete state[key];
+  saveDeliveryState(state);
+  return true;
+}
+
 async function cmdPoll() {
-  const ntfy = ntfyUrl();
-  for (const set of convex("admin:collect")) {
-    const lines = [];
-    for (const q of set.questions) {
-      const ref = q.briefId ? `#${q.briefId} ` : "";
-      if (q.answerLabel) {
-        if (q.briefId) {
-          const done = spawnSync(BRIEF, ["done", String(q.briefId), "--note", `Products chose: ${q.answerLabel} (via ask)`], {
-            encoding: "utf8",
-          });
-          if (done.status !== 0) console.error(`brief done ${q.briefId} failed: ${done.stderr.trim()}`);
-        }
-        lines.push(`${ref}${q.title} → ${q.answerLabel}`);
-      } else {
-        lines.push(`${ref}${q.title} → no answer, link expired`);
+  if (!SITE) throw new Error("Set ASK_URL for notification links.");
+  const state = readDeliveryState();
+  const sets = convex("admin:collect");
+  console.log(`collected ${sets.final.length} final, ${sets.progress.length} progress`);
+  let failed = false;
+  for (const [kind, list] of [["final", sets.final], ["progress", sets.progress]]) {
+    for (const set of list) {
+      try {
+        if (!await (kind === "final" ? pollFinal(state, set) : pollProgress(state, set))) failed = true;
+      } catch (err) {
+        failed = true;
+        console.error(`FAILED ${kind} ${set.id}: ${err.stderr?.toString().trim() || err.message}`);
       }
     }
-    const title = set.status === "complete" ? `Products answered: ${set.title}` : `Link expired: ${set.title}`;
-    console.log(`${title}\n${lines.join("\n")}`);
-    if (ntfy) {
-      await fetch(ntfy, { method: "POST", headers: { Title: title, Tags: "ballot_box_with_check" }, body: lines.join("\n") }).catch(
-        (err) => console.error(`ntfy failed: ${err.message}`),
-      );
-    }
-    convex("admin:markReported", { id: set.id });
   }
+  if (failed) process.exitCode = 1;
 }
 
 function die(message) {
@@ -251,12 +494,23 @@ function die(message) {
 }
 
 const [cmd, ...argv] = process.argv.slice(2);
-if (!SITE && cmd !== "poll") die("Set ASK_URL to the deployed site, in .env.local or the environment.");
+if (!SITE && cmd && !["poll", "show", "wait"].includes(cmd)) die("Set ASK_URL to the deployed site, in .env.local or the environment.");
 try {
   if (cmd === "new") await cmdNew(argv);
-  else if (cmd === "push" && argv[0]) push(argv[0]);
+  else if (cmd === "push" && argv[0]) {
+    if (argv.length !== 1 && !(argv.length === 3 && argv[1] === "--thread" && argv[2])) die(USAGE);
+    push(argv[0], argv[2]);
+  }
   else if (cmd === "list") cmdList();
-  else if (cmd === "revoke" && argv[0]) convex("admin:revoke", { token: tokenOf(argv[0]) });
+  else if (cmd === "revoke" && argv[0]) {
+    if (argv.length !== 1 && !(argv.length === 2 && argv[1] === "--discard")) die(USAGE);
+    convex("admin:revoke", { token: tokenOf(argv[0]), ...(argv[1] === "--discard" && { discard: true }) });
+  }
+  else if (cmd === "show" && argv.length === 1) cmdShow(argv[0]);
+  else if (cmd === "wait" && argv[0]) {
+    if (argv.length !== 1 && !(argv.length === 3 && argv[1] === "--timeout")) die(USAGE);
+    await cmdWait(argv[0], argv.length === 3 ? Number(argv[2]) : 110);
+  }
   else if (cmd === "retitle" && argv.length === 2) convex("admin:retitle", { token: tokenOf(argv[0]), title: argv[1] });
   else if (cmd === "remove-question" && argv.length === 2) {
     convex("admin:removeQuestion", { token: tokenOf(argv[0]), question: Number(argv[1]) });

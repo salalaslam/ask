@@ -21,6 +21,7 @@ export const create = internalMutation({
     token: v.string(),
     title: v.string(),
     ttlDays: v.number(),
+    thread: v.optional(v.string()),
     questions: v.array(
       v.object({
         briefId: v.optional(v.number()),
@@ -30,7 +31,7 @@ export const create = internalMutation({
       }),
     ),
   },
-  handler: async (ctx, { token, title, ttlDays, questions }) => {
+  handler: async (ctx, { token, title, ttlDays, thread, questions }) => {
     if (token.length < 20) throw new ConvexError("Token too short.");
     if (questions.length === 0) throw new ConvexError("No questions.");
     questions.forEach(checkOptions);
@@ -39,6 +40,7 @@ export const create = internalMutation({
       title,
       expiresAt: Date.now() + ttlDays * DAY,
       status: "open",
+      ...(thread && { thread }),
     });
     for (const [order, q] of questions.entries()) {
       await ctx.db.insert("questions", { setId, order, ...q });
@@ -47,16 +49,17 @@ export const create = internalMutation({
   },
 });
 
+// The poller then reports the answers given so far, like a finished set, unless discard is set.
 export const revoke = internalMutation({
-  args: { token: v.string() },
-  handler: async (ctx, { token }) => {
+  args: { token: v.string(), discard: v.optional(v.boolean()) },
+  handler: async (ctx, { token, discard }) => {
     const set = await ctx.db
       .query("sets")
       .withIndex("by_token", (q) => q.eq("token", token))
       .unique();
     if (!set) throw new ConvexError("No set with that token.");
     if (set.status !== "open") throw new ConvexError(`Set is already ${set.status}.`);
-    await ctx.db.patch(set._id, { status: "revoked", reportedAt: Date.now() });
+    await ctx.db.patch(set._id, { status: "revoked", ...(discard && { reportedAt: Date.now() }) });
   },
 });
 
@@ -144,8 +147,12 @@ async function withQuestions(ctx: QueryCtx, set: Doc<"sets">) {
     title: set.title,
     status: set.status,
     expiresAt: set.expiresAt,
+    completedAt: set.completedAt ?? null,
     reportedAt: set.reportedAt ?? null,
+    progressAt: set.progressAt ?? null,
+    thread: set.thread ?? null,
     questions: questions.map((q) => ({
+      id: q._id,
       briefId: q.briefId ?? null,
       title: q.title,
       answer: q.answer ?? null,
@@ -153,9 +160,25 @@ async function withQuestions(ctx: QueryCtx, set: Doc<"sets">) {
         q.answer === OTHER
           ? `${OTHER_LABEL}: ${q.answerText}`
           : (q.options.find((o) => o.id === q.answer)?.label ?? null),
+      answeredAt: q.answeredAt ?? null,
+      closedAt: q.closedAt ?? null,
     })),
   };
 }
+
+export const get = internalQuery({
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    const set = await ctx.db
+      .query("sets")
+      .withIndex("by_token", (q) => q.eq("token", token))
+      .unique();
+    if (!set) return null;
+    // Like the answer page: an open set past its expiry is expired even before the poller marks it.
+    const expired = set.status === "open" && set.expiresAt < Date.now();
+    return await withQuestions(ctx, expired ? { ...set, status: "expired" } : set);
+  },
+});
 
 export const list = internalQuery({
   args: {},
@@ -165,23 +188,46 @@ export const list = internalQuery({
   },
 });
 
-// Marks open sets past their expiry as expired, then returns every complete or
-// expired set the poller hasn't reported yet.
+// Marks open sets past their expiry as expired, then returns the finished sets
+// (complete, expired or revoked) the poller hasn't reported yet, and the open sets
+// with answers newer than their last progress notice.
 export const collect = internalMutation({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();
+    const open = [];
     for (const set of await ctx.db
       .query("sets")
       .withIndex("by_status", (q) => q.eq("status", "open"))
       .collect()) {
       if (set.expiresAt < now) await ctx.db.patch(set._id, { status: "expired" });
+      else open.push(set);
     }
-    const done = [
-      ...(await ctx.db.query("sets").withIndex("by_status", (q) => q.eq("status", "complete")).collect()),
-      ...(await ctx.db.query("sets").withIndex("by_status", (q) => q.eq("status", "expired")).collect()),
-    ].filter((s) => s.reportedAt === undefined);
-    return await Promise.all(done.map((s) => withQuestions(ctx, s)));
+    const finished = [];
+    for (const status of ["complete", "expired", "revoked"] as const) {
+      finished.push(...(await ctx.db.query("sets").withIndex("by_status", (q) => q.eq("status", status)).collect()));
+    }
+    const final = await Promise.all(
+      finished.filter((s) => s.reportedAt === undefined).map((s) => withQuestions(ctx, s)),
+    );
+    const progress = (await Promise.all(open.map((s) => withQuestions(ctx, s)))).filter((s) =>
+      s.questions.some((q) => q.answeredAt !== null && q.answeredAt > (s.progressAt ?? 0)),
+    );
+    return { final, progress };
+  },
+});
+
+export const markClosed = internalMutation({
+  args: { questionId: v.id("questions") },
+  handler: async (ctx, { questionId }) => {
+    await ctx.db.patch(questionId, { closedAt: Date.now() });
+  },
+});
+
+export const markProgress = internalMutation({
+  args: { id: v.id("sets"), at: v.number() },
+  handler: async (ctx, { id, at }) => {
+    await ctx.db.patch(id, { progressAt: at });
   },
 });
 
