@@ -2,10 +2,11 @@
 
 import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
-import { use, useState } from "react";
+import { use, useEffect, useRef, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { MAX_TEXT, OTHER, OTHER_LABEL } from "@/convex/answers";
+import { confetti } from "./confetti";
 
 export function Answers({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
@@ -17,10 +18,33 @@ export function Answers({ params }: { params: Promise<{ token: string }> }) {
   const [texts, setTexts] = useState<Record<string, string>>({});
   const [writing, setWriting] = useState<Record<string, boolean>>({});
 
+  // celebrate only when the last answer lands while the page is open, not on a revisit
+  const status = set?.status;
+  const lastStatus = useRef(status);
+  useEffect(() => {
+    if (lastStatus.current === "open" && status === "complete") {
+      confetti();
+      const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      window.scrollTo({ top: 0, behavior: still ? "auto" : "smooth" });
+    }
+    lastStatus.current = status;
+  }, [status]);
+
+  // when the chips overflow (long sets), keep the first unanswered one in view
+  const steps = useRef<HTMLOListElement>(null);
+  const firstOpen = set?.questions.findIndex((q) => q.answer === null) ?? -1;
+  useEffect(() => {
+    const list = steps.current;
+    const chip = firstOpen >= 0 ? list?.children[firstOpen] : undefined;
+    if (!list || !(chip instanceof HTMLElement)) return;
+    list.scrollTo({ left: chip.offsetLeft - (list.clientWidth - chip.offsetWidth) / 2, behavior: "smooth" });
+  }, [firstOpen]);
+
   if (set === undefined) return <main className="notice">Loading…</main>;
   if (set === null) return <main className="notice">This link isn&apos;t valid.</main>;
 
   const open = set.status === "open";
+  const total = set.questions.length;
   const answered = set.questions.filter((q) => q.answer !== null).length;
 
   async function choose(questionId: Id<"questions">, optionId: string, text?: string) {
@@ -40,12 +64,12 @@ export function Answers({ params }: { params: Promise<{ token: string }> }) {
   return (
     <main>
       <h1>{set.title}</h1>
-      <p className="lead">
+      <p className={set.status === "complete" ? "lead done" : "lead"}>
         {set.status === "complete"
           ? "All answers are recorded. Thank you!"
           : set.status === "expired"
             ? "This link has expired. Answers given before it expired are recorded."
-            : `Tap one option per question, or write your own under "${OTHER_LABEL}". Each answer saves on its own and you can change it until the last one is answered. ${answered} of ${set.questions.length} answered.`}
+            : `Tap one option per question, or write your own under "${OTHER_LABEL}". Each answer saves on its own and you can change it until the last one is answered.`}
       </p>
       <p className="note">
         {set.status === "complete"
@@ -53,18 +77,65 @@ export function Answers({ params }: { params: Promise<{ token: string }> }) {
           : "The dev team is notified automatically once all decisions are in."}
       </p>
 
+      <nav className="progress" aria-label="Progress">
+        <div className="progress-row">
+          <ol className="steps" ref={steps}>
+            {set.questions.map((q, i) => (
+              <li key={q.id}>
+                <a
+                  href={`#q${i + 1}`}
+                  className={q.answer !== null ? "step done" : "step"}
+                  aria-label={`Question ${i + 1}, ${q.answer !== null ? "answered" : "not answered"}`}
+                >
+                  {i + 1}
+                </a>
+              </li>
+            ))}
+          </ol>
+          <span className="count">
+            {answered} of {total} answered
+          </span>
+        </div>
+        <div
+          className="bar"
+          role="progressbar"
+          aria-label="Questions answered"
+          aria-valuemin={0}
+          aria-valuemax={total}
+          aria-valuenow={answered}
+        >
+          <span style={{ width: `${(answered / total) * 100}%` }} />
+        </div>
+      </nav>
+
       {set.questions.map((q, i) => {
         const chosen = pending[q.id] ?? q.answer;
         const showText = open && (writing[q.id] ?? chosen === OTHER);
         const text = texts[q.id] ?? q.answerText ?? "";
+        const done = q.answer !== null;
         return (
-          <section className="card" key={q.id}>
-            <h2>
-              <span>
-                {i + 1}. {q.title}
+          <section
+            className={done ? "card answered" : open ? "card waiting" : "card"}
+            id={`q${i + 1}`}
+            key={q.id}
+            aria-labelledby={`q${i + 1}-title`}
+          >
+            <header className="card-head">
+              <span className="num" aria-hidden="true">
+                {done ? "✓" : i + 1}
               </span>
-              {q.answer !== null && !pending[q.id] && <span className="saved">Saved ✓</span>}
-            </h2>
+              <div>
+                <div className="eyebrow">
+                  <span>
+                    Question {i + 1} of {total}
+                  </span>
+                  <span className="state">
+                    {q.id in pending ? "Saving…" : done ? "Answered" : "Not answered"}
+                  </span>
+                </div>
+                <h2 id={`q${i + 1}-title`}>{q.title}</h2>
+              </div>
+            </header>
             <p className="context">{q.context}</p>
             {q.options.map((o) => (
               <button

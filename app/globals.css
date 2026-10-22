@@ -7,7 +7,10 @@
   --accent: #1f5eff;
   --accent-bg: #eef3ff;
   --ok: #1a7f37;
+  --ok-bg: #e7f6ec;
+  --on-ok: #fff;
   --error: #c4291c;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 4px 14px rgb(0 0 0 / 0.05);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -20,7 +23,10 @@
     --accent: #6e9bff;
     --accent-bg: #1a2440;
     --ok: #4cc26b;
+    --ok-bg: #15301e;
+    --on-ok: #0b1f11;
     --error: #ff6b5e;
+    --shadow: none;
   }
 }
 
@@ -54,33 +60,176 @@ h1 {
   margin: 0 0 24px;
 }
 
+/* Sticky progress: one chip per question (tap to jump), a count and a bar */
+.progress {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  margin: 0 -16px 20px;
+  padding: 10px 16px 12px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+
+.progress-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.steps {
+  display: flex;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 2px 0;
+  list-style: none;
+  position: relative;
+  overflow-x: auto;
+  scrollbar-width: none;
+  /* fade the right edge so a long row reads as scrollable */
+  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+}
+
+.steps::-webkit-scrollbar {
+  display: none;
+}
+
+.step {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line);
+  background: var(--card);
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.step.done {
+  border-color: var(--ok);
+  background: var(--ok);
+  color: var(--on-ok);
+}
+
+.count {
+  font-size: 0.88rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.bar {
+  height: 6px;
+  margin-top: 10px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ok);
+  transition: width 0.4s ease;
+}
+
+/* Each question is its own card with a coloured edge: blue waiting, green answered */
 .card {
   background: var(--card);
   border: 1px solid var(--line);
+  border-left-width: 5px;
   border-radius: 14px;
+  box-shadow: var(--shadow);
   padding: 18px 16px;
-  margin-bottom: 16px;
+  margin-bottom: 28px;
+  scroll-margin-top: 84px;
+}
+
+.card.waiting {
+  border-left-color: var(--accent);
+}
+
+.card.answered {
+  border-left-color: var(--ok);
+}
+
+.card-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.card-head > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.num {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.card.answered .num {
+  background: var(--ok);
+  color: var(--on-ok);
+}
+
+.eyebrow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.state {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.card.answered .state {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+
+.card:not(.waiting):not(.answered) .state {
+  background: var(--line);
+  color: var(--muted);
 }
 
 .card h2 {
   font-size: 1.1rem;
-  margin: 0 0 6px;
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
+  margin: 4px 0 0;
 }
 
 .context {
   color: var(--muted);
   margin: 0 0 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
   white-space: pre-line;
-}
-
-.saved {
-  color: var(--ok);
-  font-size: 0.85rem;
-  font-weight: 600;
-  white-space: nowrap;
 }
 
 .option {
@@ -89,7 +238,7 @@ h1 {
   text-align: left;
   font: inherit;
   color: inherit;
-  background: transparent;
+  background: var(--bg);
   border: 1.5px solid var(--line);
   border-radius: 10px;
   padding: 12px 14px;
@@ -178,7 +327,20 @@ h1 {
 .note {
   color: var(--muted);
   font-size: 0.9rem;
-  margin: -12px 0 24px;
+  margin: -12px 0 16px;
+}
+
+.lead.done {
+  color: var(--ok);
+  font-weight: 600;
+  background: var(--ok-bg);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+
+.lead.done + .note {
+  margin-top: 0;
 }
 
 .option .written {
