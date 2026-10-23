@@ -19,6 +19,7 @@ const USAGE = `usage:
   ask wait TOKEN|URL [--timeout MINUTES]
                                       wait for an answer count/status change (default 110m; timeout exits 3)
   ask retitle TOKEN TEXT              change the title of an open link
+  ask retitle-question TOKEN N TEXT   change the title of question N of an open link
   ask add-option TOKEN N FILE         add an option (YAML) to question N of an open link
   ask remove-question TOKEN N         remove question N from an open link
   ask add-question TOKEN FILE [--after N]
@@ -101,7 +102,8 @@ and read the code in the repo you're in. Don't change anything.
 
 Rules:
 - Plain English for a non-developer. No file names, PR numbers, function names or jargon they wouldn't use.
-- title: the question itself, under 12 words.
+- title: the question itself, under 12 words. If the brief item names a ticket (like T9 or ORION-12),
+  start the title with it, as in "T9: How many free checks a day?".
 - context: one or two short sentences: what the situation is and why it needs their decision.
 - 2 to 4 options. id: short kebab-case slug. label: under 8 words. detail: one sentence with the
   consequence or trade-off of picking it (under 25 words).
@@ -512,7 +514,9 @@ try {
     await cmdWait(argv[0], argv.length === 3 ? Number(argv[2]) : 110);
   }
   else if (cmd === "retitle" && argv.length === 2) convex("admin:retitle", { token: tokenOf(argv[0]), title: argv[1] });
-  else if (cmd === "remove-question" && argv.length === 2) {
+  else if (cmd === "retitle-question" && argv.length === 3) {
+    convex("admin:retitleQuestion", { token: tokenOf(argv[0]), question: Number(argv[1]), title: argv[2] });
+  } else if (cmd === "remove-question" && argv.length === 2) {
     convex("admin:removeQuestion", { token: tokenOf(argv[0]), question: Number(argv[1]) });
   } else if (cmd === "add-option" && argv.length === 3) {
     convex("admin:addOption", { token: tokenOf(argv[0]), question: Number(argv[1]), option: toOption(readYaml(argv[2])) });

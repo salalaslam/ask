@@ -86,6 +86,16 @@ export const retitle = internalMutation({
 });
 
 // Only open sets can change. Questions are addressed by their 1-based number on the page.
+export const retitleQuestion = internalMutation({
+  args: { token: v.string(), question: v.number(), title: v.string() },
+  handler: async (ctx, { token, question, title }) => {
+    const { questions } = await openSetQuestions(ctx, token);
+    const target = questions[question - 1];
+    if (!target) throw new ConvexError(`No question ${question}.`);
+    await ctx.db.patch(target._id, { title });
+  },
+});
+
 export const addOption = internalMutation({
   args: { token: v.string(), question: v.number(), option },
   handler: async (ctx, { token, question, option }) => {
