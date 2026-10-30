@@ -238,7 +238,7 @@ function cmdList() {
     const done = set.questions.filter((q) => q.answer).length;
     console.log(`${set.status.padEnd(8)} ${done}/${set.questions.length}  ${set.title}  ${SITE}/${set.token}`);
     for (const q of set.questions) {
-      console.log(`  ${q.briefId ? `#${q.briefId} ` : ""}${q.title}: ${q.answerLabel ?? "-"}`);
+      console.log(`  ${q.briefId ? `#${q.briefId} ` : ""}${q.title}: ${q.answerLabel ?? (q.movedTo ? `moved to ${SITE}/${q.movedTo}` : "-")}`);
     }
   }
 }
@@ -249,7 +249,11 @@ function answerLabel(q) {
 }
 
 const answered = (set) => set.questions.filter((q) => q.answer != null);
-const answeredLines = (set) => answered(set).map((q) => `${q.title} → ${answerLabel(q)}`);
+const movedLine = (q) => `${q.title} → moved to the lawyer link ${SITE}/${q.movedTo}`;
+const answeredLines = (set) => [
+  ...answered(set).map((q) => `${q.title} → ${answerLabel(q)}`),
+  ...set.questions.filter((q) => q.answer == null && q.movedTo).map(movedLine),
+];
 const summary = (set) => [`${set.title}: ${set.status}, ${answered(set).length}/${set.questions.length} answered`, ...answeredLines(set)].join("\n");
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -267,7 +271,7 @@ function cmdShow(arg) {
 async function cmdWait(arg, minutes = 110) {
   if (!Number.isFinite(minutes) || minutes <= 0) throw new Error("--timeout must be a positive number of minutes.");
   const deadline = Date.now() + minutes * 60 * 1000;
-  const seen = (set) => `${set.status} ${set.questions.map((q) => `${q.id}=${q.answer}:${q.answeredAt}`).join(",")}`;
+  const seen = (set) => `${set.status} ${set.questions.map((q) => `${q.id}=${q.answer}:${q.answeredAt}:${q.movedTo}`).join(",")}`;
   let initial;
   while (Date.now() < deadline) {
     let set;
@@ -315,7 +319,8 @@ function noticeFor(set, key, kind) {
     ? `${set.status === "complete" ? "Products answered" : `Link ${set.status}`}: ${set.title}`
     : kind === "started" ? `Products started answering: ${set.title}` : `Products answered ${count} of ${total} so far on ${set.title}`;
   const lines = kind === "final"
-    ? set.questions.map((q) => `${q.title} → ${q.answer != null ? answerLabel(q) : `no answer, link ${set.status}`}`)
+    ? set.questions.map((q) =>
+      q.answer == null && q.movedTo ? movedLine(q) : `${q.title} → ${q.answer != null ? answerLabel(q) : `no answer, link ${set.status}`}`)
     : answeredLines(set);
   return {
     key,

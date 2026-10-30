@@ -12,11 +12,15 @@ export function Answers({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
   const set = useQuery(api.sets.get, { token });
   const answer = useMutation(api.sets.answer);
+  const markLegal = useMutation(api.sets.markLegal);
+  const makeLawyerLink = useMutation(api.sets.makeLawyerLink);
   const [pending, setPending] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   // free-text drafts, and which questions have the text box open
   const [texts, setTexts] = useState<Record<string, string>>({});
   const [writing, setWriting] = useState<Record<string, boolean>>({});
+  // the lawyer link just made on this page, and its errors
+  const [lawyer, setLawyer] = useState<{ busy?: boolean; token?: string; error?: string; copied?: boolean }>({});
 
   // celebrate only when the last answer lands while the page is open, not on a revisit
   const status = set?.status;
@@ -32,7 +36,7 @@ export function Answers({ params }: { params: Promise<{ token: string }> }) {
 
   // when the chips overflow (long sets), keep the first unanswered one in view
   const steps = useRef<HTMLOListElement>(null);
-  const firstOpen = set?.questions.findIndex((q) => q.answer === null) ?? -1;
+  const firstOpen = set?.questions.findIndex((q) => q.answer === null && q.movedTo === null) ?? -1;
   useEffect(() => {
     const list = steps.current;
     const chip = firstOpen >= 0 ? list?.children[firstOpen] : undefined;
@@ -44,8 +48,12 @@ export function Answers({ params }: { params: Promise<{ token: string }> }) {
   if (set === null) return <main className="notice">This link isn&apos;t valid.</main>;
 
   const open = set.status === "open";
-  const total = set.questions.length;
-  const answered = set.questions.filter((q) => q.answer !== null).length;
+  // questions moved to a lawyer link are answered there, not here
+  const here = set.questions.filter((q) => q.movedTo === null);
+  const total = here.length;
+  const answered = here.filter((q) => q.answer !== null).length;
+  const canMark = open && !set.lawyerLink;
+  const marked = here.filter((q) => q.legal && q.answer === null).length;
 
   async function choose(questionId: Id<"questions">, optionId: string, text?: string) {
     setPending((p) => ({ ...p, [questionId]: optionId }));
@@ -61,8 +69,46 @@ export function Answers({ params }: { params: Promise<{ token: string }> }) {
     }
   }
 
+  async function toggleLegal(questionId: Id<"questions">, legal: boolean) {
+    setErrors((e) => ({ ...e, [questionId]: "" }));
+    try {
+      await markLegal({ token, questionId, legal });
+    } catch (err) {
+      const message = err instanceof ConvexError ? String(err.data) : "Couldn't save. Try again.";
+      setErrors((e) => ({ ...e, [questionId]: message }));
+    }
+  }
+
+  async function sendToLawyer() {
+    const plural = marked === 1 ? "this question" : `these ${marked} questions`;
+    if (!window.confirm(`Move ${plural} to a new link for your lawyer? You'll answer them there, not here.`)) return;
+    setLawyer({ busy: true });
+    try {
+      setLawyer({ token: await makeLawyerLink({ token }) });
+      window.scrollTo({ top: 0 });
+    } catch (err) {
+      setLawyer({ error: err instanceof ConvexError ? String(err.data) : "Couldn't make the link. Try again." });
+    }
+  }
+
+  const lawyerUrl = lawyer.token ? `${window.location.origin}/${lawyer.token}` : "";
+
+  async function copyLawyerUrl() {
+    try {
+      await navigator.clipboard.writeText(lawyerUrl);
+      setLawyer((l) => ({ ...l, copied: true }));
+    } catch {
+      window.prompt("Copy the link:", lawyerUrl);
+    }
+  }
+
   return (
-    <main>
+    <main className={marked > 0 && canMark ? "has-bar" : undefined}>
+      <div className="tools">
+        <button className="tool" onClick={() => window.print()}>
+          Save as PDF
+        </button>
+      </div>
       <h1>{set.title}</h1>
       <p className={set.status === "complete" ? "lead done" : "lead"}>
         {set.status === "complete"
@@ -76,6 +122,23 @@ export function Answers({ params }: { params: Promise<{ token: string }> }) {
           ? "The dev team is notified automatically."
           : "The dev team is notified automatically once all decisions are in."}
       </p>
+      {set.lawyerLink && open && (
+        <p className="note">These questions are for your session with the lawyer. Save as PDF if they need time to look.</p>
+      )}
+      {canMark && (
+        <p className="note">
+          Need your lawyer for some? Mark them &ldquo;Needs lawyer&rdquo;, then make a separate link with just those.
+        </p>
+      )}
+      {lawyer.token && (
+        <div className="lawyer-ready" role="status">
+          <strong>Lawyer link ready</strong>
+          <a href={`/${lawyer.token}`}>{lawyerUrl}</a>
+          <button className="tool" onClick={copyLawyerUrl}>
+            {lawyer.copied ? "Copied" : "Copy link"}
+          </button>
+        </div>
+      )}
 
       <nav className="progress" aria-label="Progress">
         <div className="progress-row">
@@ -84,8 +147,8 @@ export function Answers({ params }: { params: Promise<{ token: string }> }) {
               <li key={q.id}>
                 <a
                   href={`#q${i + 1}`}
-                  className={q.answer !== null ? "step done" : "step"}
-                  aria-label={`Question ${i + 1}, ${q.answer !== null ? "answered" : "not answered"}`}
+                  className={q.movedTo !== null ? "step moved" : q.answer !== null ? "step done" : "step"}
+                  aria-label={`Question ${i + 1}, ${q.movedTo !== null ? "moved to the lawyer link" : q.answer !== null ? "answered" : "not answered"}`}
                 >
                   {i + 1}
                 </a>
@@ -109,13 +172,36 @@ export function Answers({ params }: { params: Promise<{ token: string }> }) {
       </nav>
 
       {set.questions.map((q, i) => {
+        if (q.movedTo !== null) {
+          return (
+            <section className="card moved" id={`q${i + 1}`} key={q.id} aria-labelledby={`q${i + 1}-title`}>
+              <header className="card-head">
+                <span className="num" aria-hidden="true">
+                  {i + 1}
+                </span>
+                <div>
+                  <div className="eyebrow">
+                    <span>
+                      Question {i + 1} of {set.questions.length}
+                    </span>
+                    <span className="state">For the lawyer</span>
+                  </div>
+                  <h2 id={`q${i + 1}-title`}>{q.title}</h2>
+                </div>
+              </header>
+              <p className="moved-note">
+                Moved to the <a href={`/${q.movedTo}`}>lawyer link</a>. Answer it there.
+              </p>
+            </section>
+          );
+        }
         const chosen = pending[q.id] ?? q.answer;
         const showText = open && (writing[q.id] ?? chosen === OTHER);
         const text = texts[q.id] ?? q.answerText ?? "";
         const done = q.answer !== null;
         return (
           <section
-            className={done ? "card answered" : open ? "card waiting" : "card"}
+            className={done ? "card answered" : !open ? "card" : q.legal ? "card waiting legal" : "card waiting"}
             id={`q${i + 1}`}
             key={q.id}
             aria-labelledby={`q${i + 1}-title`}
@@ -127,10 +213,10 @@ export function Answers({ params }: { params: Promise<{ token: string }> }) {
               <div>
                 <div className="eyebrow">
                   <span>
-                    Question {i + 1} of {total}
+                    Question {i + 1} of {set.questions.length}
                   </span>
                   <span className="state">
-                    {q.id in pending ? "Saving…" : done ? "Answered" : "Not answered"}
+                    {q.id in pending ? "Saving…" : done ? "Answered" : q.legal && open ? "Needs lawyer" : "Not answered"}
                   </span>
                 </div>
                 <h2 id={`q${i + 1}-title`}>{q.title}</h2>
@@ -161,7 +247,7 @@ export function Answers({ params }: { params: Promise<{ token: string }> }) {
               </button>
             ))}
             <button
-              className="option"
+              className="option other"
               aria-pressed={chosen === OTHER}
               disabled={!open || q.id in pending}
               onClick={() => setWriting((w) => ({ ...w, [q.id]: !showText }))}
@@ -192,10 +278,27 @@ export function Answers({ params }: { params: Promise<{ token: string }> }) {
                 </button>
               </div>
             )}
+            {canMark && !done && (
+              <button className="legal-toggle" aria-pressed={q.legal} onClick={() => toggleLegal(q.id, !q.legal)}>
+                {q.legal ? "✓ Needs lawyer (tap to undo)" : "Needs lawyer"}
+              </button>
+            )}
             {errors[q.id] && <p className="error">{errors[q.id]}</p>}
           </section>
         );
       })}
+
+      {canMark && marked > 0 && (
+        <div className="lawyer-bar">
+          <span>
+            {marked} marked for the lawyer
+            {lawyer.error && <em className="error">{lawyer.error}</em>}
+          </span>
+          <button className="save" disabled={lawyer.busy} onClick={sendToLawyer}>
+            {lawyer.busy ? "Making link…" : "Make lawyer link"}
+          </button>
+        </div>
+      )}
     </main>
   );
 }

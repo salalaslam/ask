@@ -10,6 +10,8 @@
   --ok-bg: #e7f6ec;
   --on-ok: #fff;
   --error: #c4291c;
+  --legal: #7a3fc4;
+  --legal-bg: #f3ecfd;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 4px 14px rgb(0 0 0 / 0.05);
 }
 
@@ -26,6 +28,8 @@
     --ok-bg: #15301e;
     --on-ok: #0b1f11;
     --error: #ff6b5e;
+    --legal: #c39bff;
+    --legal-bg: #2a1d3d;
     --shadow: none;
   }
 }
@@ -380,4 +384,203 @@ h1 {
 .save:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* "Save as PDF" sits above the title */
+.tools {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.tool {
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 14px;
+  min-height: 34px;
+  cursor: pointer;
+}
+
+/* Questions marked for the lawyer, and the ones already moved to a lawyer link */
+.legal-toggle {
+  display: block;
+  margin: 12px 0 0 auto;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: none;
+  border: 1.5px dashed var(--line);
+  border-radius: 999px;
+  padding: 6px 14px;
+  min-height: 36px;
+  cursor: pointer;
+}
+
+.legal-toggle[aria-pressed="true"] {
+  color: var(--legal);
+  border: 1.5px solid var(--legal);
+  background: var(--legal-bg);
+}
+
+.card.legal {
+  border-left-color: var(--legal);
+}
+
+.card.legal .state,
+/* :not(.answered) to outrank the grey pill of closed cards */
+.card.moved:not(.answered) .state {
+  background: var(--legal-bg);
+  color: var(--legal);
+}
+
+.card.moved {
+  border-left-color: var(--legal);
+  opacity: 0.85;
+}
+
+.card.moved .num {
+  background: var(--legal-bg);
+  color: var(--legal);
+}
+
+.moved-note {
+  margin: 0;
+  color: var(--muted);
+}
+
+.step.moved {
+  border-style: dashed;
+  border-color: var(--legal);
+  color: var(--legal);
+}
+
+/* Fixed bar once anything is marked; main gets room so it doesn't cover the last card */
+main.has-bar {
+  padding-bottom: 120px;
+}
+
+.lawyer-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  background: var(--card);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -4px 14px rgb(0 0 0 / 0.08);
+}
+
+.lawyer-bar span {
+  flex: 1;
+  font-weight: 600;
+}
+
+.lawyer-bar .error {
+  display: block;
+  font-style: normal;
+  font-weight: 400;
+  margin: 2px 0 0;
+}
+
+.lawyer-bar .save {
+  width: auto;
+  margin: 0;
+  padding: 0 18px;
+  background: var(--legal);
+}
+
+.lawyer-ready {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0 0 20px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--legal-bg);
+}
+
+.lawyer-ready strong {
+  color: var(--legal);
+}
+
+.lawyer-ready a {
+  flex-basis: 100%;
+  order: 3;
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+/* Save as PDF: the questions, context, options and answers on white paper, without the controls */
+@media print {
+  :root {
+    --bg: #fff;
+    --card: #fff;
+    --text: #000;
+    --muted: #444;
+    --line: #ccc;
+    --shadow: none;
+  }
+
+  body {
+    font-size: 11pt;
+  }
+
+  main {
+    max-width: none;
+    padding: 0;
+  }
+
+  .tools,
+  .progress,
+  .lead,
+  .note,
+  .legal-toggle,
+  .lawyer-bar,
+  .lawyer-ready,
+  .write,
+  .error,
+  .option .tags,
+  .card.moved,
+  .option.other:not([aria-pressed="true"]) {
+    display: none;
+  }
+
+  h1 {
+    margin-bottom: 16px;
+  }
+
+  .card {
+    border: 1px solid var(--line);
+    border-left-width: 1px;
+    break-inside: avoid;
+    margin-bottom: 16px;
+  }
+
+  .num,
+  .state {
+    print-color-adjust: exact;
+  }
+
+  .option {
+    min-height: 0;
+    padding: 6px 10px;
+    break-inside: avoid;
+  }
+
+  .option[aria-pressed="true"] {
+    border: 2px solid #000;
+  }
 }
