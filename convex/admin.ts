@@ -3,8 +3,9 @@
 import { ConvexError, v } from "convex/values";
 import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
-import { OTHER, OTHER_LABEL } from "./answers";
+import { OTHER, OTHER_LABEL, settled } from "./answers";
 import { option } from "./schema";
+import { movedTokens } from "./sets";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -140,7 +141,7 @@ export const removeQuestion = internalMutation({
     if (!target) throw new ConvexError(`No question ${question}.`);
     if (questions.length === 1) throw new ConvexError("Can't remove the only question; revoke the link instead.");
     await ctx.db.delete(target._id);
-    if (questions.every((q) => q._id === target._id || q.answer !== undefined)) {
+    if (questions.every((q) => q._id === target._id || settled(q))) {
       await ctx.db.patch(set._id, { status: "complete", completedAt: Date.now() });
     }
   },
@@ -151,6 +152,7 @@ async function withQuestions(ctx: QueryCtx, set: Doc<"sets">) {
     .query("questions")
     .withIndex("by_set", (q) => q.eq("setId", set._id))
     .collect();
+  const moved = await movedTokens(ctx, questions);
   return {
     id: set._id,
     token: set.token,
@@ -172,6 +174,8 @@ async function withQuestions(ctx: QueryCtx, set: Doc<"sets">) {
           : (q.options.find((o) => o.id === q.answer)?.label ?? null),
       answeredAt: q.answeredAt ?? null,
       closedAt: q.closedAt ?? null,
+      // token of the lawyer link this question moved to
+      movedTo: (q.movedTo && moved.get(q.movedTo)) ?? null,
     })),
   };
 }

@@ -31,6 +31,8 @@ export default defineSchema({
     progressAt: v.optional(v.number()),
     // Toucan thread key (toucan.toml [threads]) whose agent waits on the answers
     thread: v.optional(v.string()),
+    // the link this one was made from with "Make lawyer link"
+    parent: v.optional(v.id("sets")),
   })
     .index("by_token", ["token"])
     .index("by_status", ["status"]),
@@ -47,5 +49,9 @@ export default defineSchema({
     answeredAt: v.optional(v.number()),
     // when the poller closed this question's brief item
     closedAt: v.optional(v.number()),
+    // marked "Needs lawyer" on the page; movedTo is the lawyer link it went to,
+    // after which this set no longer waits on it
+    legal: v.optional(v.boolean()),
+    movedTo: v.optional(v.id("sets")),
   }).index("by_set", ["setId", "order"]),
 });

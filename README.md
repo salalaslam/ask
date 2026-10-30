@@ -13,6 +13,8 @@ Send the products team a link to open brief questions. They pick one option per 
 
 Each option in a draft has `label`, `detail` (the trade-off), `chooseIf` (shown as "Choose this if …") and `suits: [us, you]` (shown as Suits us (dev) / Suits you (products)). Every question also gets a "Something else" text answer (option id `other` is reserved); the poller's brief note then reads "Something else: …". For a test link, copy the draft without its `brief:` keys so answering it closes nothing.
 
+For legal questions, products can mark unanswered questions **Needs lawyer** on the page and tap **Make lawyer link**. The marked questions move to a new link (titled "For the lawyer: …", open 30 days) with the same brief items and Toucan thread, and the original link no longer waits on them; `ask list`, `ask show` and the notices show them as moved. **Save as PDF** on any link prints a clean copy (no buttons or Suits tags) through the browser's print dialog.
+
 Each link uses one random token. Answers save one at a time and can be changed until the last question is answered; then the link closes. Links expire after 14 days (`days:` in the draft).
 
 ## Deploy
